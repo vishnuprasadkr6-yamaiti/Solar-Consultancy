@@ -1,0 +1,6 @@
+{
+  "name": "SolarDesk",
+  "description": "Local-first, offline-capable solar consultancy management application for managing customers, multi-project pipelines, project stages, and local business records.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
