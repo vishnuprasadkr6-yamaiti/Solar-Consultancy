@@ -14,13 +14,17 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Accept Android SDK licenses
+        run: |
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -n 1)
+          if [ -n "$SDKMANAGER" ]; then
+            yes | "$SDKMANAGER" --licenses > /dev/null || true
+          fi
 
       - name: Install Gradle 9.3.1
         run: |
@@ -31,7 +35,7 @@ jobs:
       - name: Prepare debug keystore
         run: |
           if [ -f debug.keystore.base64 ]; then
-            base64 -d debug.keystore.base64 > debug.keystore
+            base64 -di debug.keystore.base64 > debug.keystore
           else
             keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
