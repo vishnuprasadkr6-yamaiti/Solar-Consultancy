@@ -29,7 +29,6 @@ import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -73,8 +72,6 @@ fun SettingsScreen(
     var businessEmail by remember(state.settings) { mutableStateOf(state.settings.businessEmail) }
     var businessAddress by remember(state.settings) { mutableStateOf(state.settings.businessAddress) }
     var taxId by remember(state.settings) { mutableStateOf(state.settings.taxOrGstId) }
-    var currencySymbol by remember(state.settings) { mutableStateOf(state.settings.currencySymbol) }
-    var currencyCode by remember(state.settings) { mutableStateOf(state.settings.currencyCode) }
 
     val editableStages = remember(state.stages) {
         mutableStateListOf<String>().apply { addAll(state.stages) }
@@ -194,70 +191,6 @@ fun SettingsScreen(
                                     maxLines = 2,
                                     modifier = Modifier.fillMaxWidth()
                                 )
-                            }
-                        }
-                    }
-                }
-
-                // Currency Settings
-                item {
-                    Column(
-                        modifier = Modifier
-                            .widthIn(max = maxContentWidth)
-                            .fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        SectionHeader(
-                            title = "Currency Settings",
-                            subtitle = "Default is Indian Rupee (INR ₹)"
-                        )
-                        SolarCard {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    listOf(
-                                        "INR" to "₹",
-                                        "USD" to "$",
-                                        "EUR" to "€",
-                                        "GBP" to "£"
-                                    ).forEach { (code, sym) ->
-                                        FilterChip(
-                                            selected = currencyCode.equals(code, ignoreCase = true),
-                                            onClick = {
-                                                currencyCode = code
-                                                currencySymbol = sym
-                                            },
-                                            label = { Text("$code ($sym)") },
-                                            modifier = Modifier.testTag("currency_chip_${code.lowercase()}")
-                                        )
-                                    }
-                                }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    OutlinedTextField(
-                                        value = currencyCode,
-                                        onValueChange = { currencyCode = it.uppercase() },
-                                        label = { Text("Currency Code") },
-                                        singleLine = true,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    OutlinedTextField(
-                                        value = currencySymbol,
-                                        onValueChange = { currencySymbol = it },
-                                        label = { Text("Symbol") },
-                                        singleLine = true,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                }
                             }
                         }
                     }
@@ -393,8 +326,8 @@ fun SettingsScreen(
                                     businessEmail = businessEmail,
                                     businessAddress = businessAddress,
                                     taxOrGstId = taxId,
-                                    currencySymbol = currencySymbol,
-                                    currencyCode = currencyCode,
+                                    currencySymbol = "₹",
+                                    currencyCode = "INR",
                                     stages = editableStages.toList()
                                 )
                             },
@@ -455,11 +388,6 @@ fun SettingsScreen(
                                         )
                                     }
                                 }
-                                Text(
-                                    text = "Upcoming in Milestone 2 & 3: Document checklists with local binary file storage, CSV reports, and full encrypted/ZIP backup & restore.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
                             }
                         }
                     }

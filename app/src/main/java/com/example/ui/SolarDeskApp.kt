@@ -14,13 +14,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Assignment
-import androidx.compose.material.icons.automirrored.outlined.Assignment
-import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.outlined.AccountBalanceWallet
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.People
 import androidx.compose.material.icons.outlined.Settings
@@ -61,8 +57,6 @@ import com.example.ui.screens.CustomersScreen
 import com.example.ui.screens.CustomersViewModel
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.DashboardViewModel
-import com.example.ui.screens.InvoicesPaymentsPlaceholderScreen
-import com.example.ui.screens.PendingActionsPlaceholderScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.SettingsViewModel
 
@@ -70,8 +64,6 @@ object NavRoutes {
     const val DASHBOARD = "dashboard"
     const val CUSTOMERS = "customers"
     const val CUSTOMER_DETAIL = "customer_detail/{customerId}"
-    const val INVOICES = "invoices"
-    const val PENDING_ACTIONS = "pending_actions"
     const val SETTINGS = "settings"
 
     fun customerDetail(customerId: String): String = "customer_detail/$customerId"
@@ -97,20 +89,6 @@ enum class TopLevelDestination(
         wideLabel = "Customers",
         selectedIcon = Icons.Filled.People,
         unselectedIcon = Icons.Outlined.People
-    ),
-    INVOICES(
-        route = NavRoutes.INVOICES,
-        compactLabel = "Invoices",
-        wideLabel = "Invoices & Payments",
-        selectedIcon = Icons.Filled.AccountBalanceWallet,
-        unselectedIcon = Icons.Outlined.AccountBalanceWallet
-    ),
-    PENDING_ACTIONS(
-        route = NavRoutes.PENDING_ACTIONS,
-        compactLabel = "Actions",
-        wideLabel = "Pending Actions",
-        selectedIcon = Icons.AutoMirrored.Filled.Assignment,
-        unselectedIcon = Icons.AutoMirrored.Outlined.Assignment
     ),
     SETTINGS(
         route = NavRoutes.SETTINGS,
@@ -303,20 +281,6 @@ fun SolarDeskApp(
                             CustomerDetailScreen(
                                 viewModel = vm,
                                 onBack = { navController.popBackStack() }
-                            )
-                        }
-
-                        composable(NavRoutes.INVOICES) {
-                            InvoicesPaymentsPlaceholderScreen(
-                                onOpenCustomers = { navigateTopLevel(NavRoutes.CUSTOMERS) },
-                                onOpenDashboard = { navigateTopLevel(NavRoutes.DASHBOARD) }
-                            )
-                        }
-
-                        composable(NavRoutes.PENDING_ACTIONS) {
-                            PendingActionsPlaceholderScreen(
-                                onOpenCustomers = { navigateTopLevel(NavRoutes.CUSTOMERS) },
-                                onOpenDashboard = { navigateTopLevel(NavRoutes.DASHBOARD) }
                             )
                         }
 

@@ -22,14 +22,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.Assignment
-import androidx.compose.material.icons.automirrored.outlined.FactCheck
 import androidx.compose.material.icons.outlined.AccountBalanceWallet
 import androidx.compose.material.icons.outlined.ArrowDownward
 import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.People
@@ -202,34 +199,6 @@ fun DashboardScreen(
                             ),
                             subtitle = state.preferences.timeFilter.label,
                             icon = Icons.Outlined.AccountBalanceWallet
-                        ),
-                        KpiSpec(
-                            title = "Pending Documents",
-                            value = state.pendingDocumentsCount.toString(),
-                            subtitle = "Milestone 2 module",
-                            icon = Icons.Outlined.Description
-                        ),
-                        KpiSpec(
-                            title = "Awaiting Verification",
-                            value = state.awaitingVerificationCount.toString(),
-                            subtitle = "Milestone 2 module",
-                            icon = Icons.AutoMirrored.Outlined.FactCheck
-                        ),
-                        KpiSpec(
-                            title = "Outstanding Payments",
-                            value = Formatters.formatCurrency(
-                                state.outstandingPaymentsAmount,
-                                state.currencySymbol,
-                                state.currencyCode
-                            ),
-                            subtitle = "Milestone 3 module",
-                            icon = Icons.Outlined.AccountBalanceWallet
-                        ),
-                        KpiSpec(
-                            title = "Overdue Tasks",
-                            value = state.overdueTasksCount.toString(),
-                            subtitle = "Milestone 2 module",
-                            icon = Icons.AutoMirrored.Outlined.Assignment
                         )
                     )
 

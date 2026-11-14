@@ -327,7 +327,7 @@ fun LocalOnlyNoticeBanner(
                     color = MaterialTheme.colorScheme.onPrimaryContainer
                 )
                 Text(
-                    text = "All customer and project records are stored exclusively on this device. Data does not sync to any cloud account; external backup export arrives in Milestone 3.",
+                    text = "All customer and project records are stored exclusively on this device and do not sync to any cloud account.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
                 )
