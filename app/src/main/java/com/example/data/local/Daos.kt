@@ -7,6 +7,12 @@ import androidx.room.Query
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
+data class ChecklistProjectStatusRow(
+    val projectId: String,
+    val totalItems: Int,
+    val completedItems: Int
+)
+
 @Dao
 interface CustomerDao {
     @Query("SELECT * FROM customers ORDER BY updatedAt DESC")
@@ -53,6 +59,84 @@ interface ProjectDao {
 
     @Query("DELETE FROM projects")
     suspend fun deleteAllProjects()
+}
+
+@Dao
+interface ProjectChecklistDao {
+    @Query("SELECT * FROM project_checklist ORDER BY projectId ASC, stepOrder ASC")
+    fun observeAllChecklistItems(): Flow<List<ProjectChecklist>>
+
+    @Query(
+        "SELECT c.* FROM project_checklist c " +
+            "INNER JOIN projects p ON p.id = c.projectId " +
+            "WHERE p.customerId = :customerId " +
+            "ORDER BY c.projectId ASC, c.stepOrder ASC"
+    )
+    fun observeChecklistsForCustomer(customerId: String): Flow<List<ProjectChecklist>>
+
+    @Query("SELECT * FROM project_checklist WHERE projectId = :projectId ORDER BY stepOrder ASC")
+    suspend fun getChecklistForProject(projectId: String): List<ProjectChecklist>
+
+    @Query("SELECT * FROM project_checklist WHERE id = :itemId")
+    suspend fun getChecklistItemById(itemId: String): ProjectChecklist?
+
+    @Query(
+        "SELECT p.id AS projectId, " +
+            "COUNT(c.id) AS totalItems, " +
+            "SUM(CASE WHEN c.isCompleted = 1 THEN 1 ELSE 0 END) AS completedItems " +
+            "FROM projects p " +
+            "LEFT JOIN project_checklist c ON c.projectId = p.id " +
+            "WHERE p.status != 'ARCHIVED' " +
+            "GROUP BY p.id"
+    )
+    fun observeChecklistCompletionSummary(): Flow<List<ChecklistProjectStatusRow>>
+
+    @Query("SELECT COUNT(*) FROM project_checklist")
+    suspend fun countChecklistItems(): Int
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertChecklistItems(items: List<ProjectChecklist>)
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertChecklistItem(item: ProjectChecklist)
+
+    @Update
+    suspend fun updateChecklistItem(item: ProjectChecklist)
+
+    @Query("DELETE FROM project_checklist WHERE id = :itemId")
+    suspend fun deleteChecklistItemById(itemId: String)
+
+    @Query("DELETE FROM project_checklist")
+    suspend fun deleteAllChecklistItems()
+}
+
+@Dao
+interface ProjectPhotoDao {
+    @Query(
+        "SELECT ph.* FROM project_photos ph " +
+            "INNER JOIN projects p ON p.id = ph.projectId " +
+            "WHERE p.customerId = :customerId " +
+            "ORDER BY ph.capturedAt DESC"
+    )
+    fun observePhotosForCustomer(customerId: String): Flow<List<ProjectPhoto>>
+
+    @Query("SELECT * FROM project_photos WHERE projectId = :projectId ORDER BY capturedAt DESC")
+    fun observePhotosForProject(projectId: String): Flow<List<ProjectPhoto>>
+
+    @Query("SELECT * FROM project_photos WHERE id = :photoId")
+    suspend fun getPhotoById(photoId: String): ProjectPhoto?
+
+    @Query("SELECT COUNT(*) FROM project_photos")
+    suspend fun countPhotos(): Int
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertPhoto(photo: ProjectPhoto)
+
+    @Query("DELETE FROM project_photos WHERE id = :photoId")
+    suspend fun deletePhotoById(photoId: String)
+
+    @Query("DELETE FROM project_photos")
+    suspend fun deleteAllPhotos()
 }
 
 @Dao

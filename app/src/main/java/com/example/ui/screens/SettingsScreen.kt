@@ -140,7 +140,7 @@ fun SettingsScreen(
                     ) {
                         SectionHeader(
                             title = "Business Information",
-                            subtitle = "Displayed in your workspace header and future invoices"
+                            subtitle = "Displayed in your workspace header and generated PDF quotes"
                         )
                         SolarCard {
                             Column(
@@ -382,7 +382,7 @@ fun SettingsScreen(
                                             style = MaterialTheme.typography.titleSmall
                                         )
                                         Text(
-                                            text = "${state.dbStats.customerCount} customers • ${state.dbStats.projectCount} projects • ${state.dbStats.activityCount} activity entries",
+                                            text = "${state.dbStats.customerCount} customers • ${state.dbStats.projectCount} projects • ${state.dbStats.checklistCount} checklist items • ${state.dbStats.photoCount} photos • ${state.dbStats.activityCount} activity logs",
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )

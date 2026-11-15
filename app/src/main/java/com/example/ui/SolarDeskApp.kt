@@ -51,6 +51,8 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.data.repository.SolarRepository
+import com.example.ui.screens.CreateQuoteScreen
+import com.example.ui.screens.CreateQuoteViewModel
 import com.example.ui.screens.CustomerDetailScreen
 import com.example.ui.screens.CustomerDetailViewModel
 import com.example.ui.screens.CustomersScreen
@@ -64,9 +66,11 @@ object NavRoutes {
     const val DASHBOARD = "dashboard"
     const val CUSTOMERS = "customers"
     const val CUSTOMER_DETAIL = "customer_detail/{customerId}"
+    const val CREATE_QUOTE = "create_quote/{projectId}"
     const val SETTINGS = "settings"
 
     fun customerDetail(customerId: String): String = "customer_detail/$customerId"
+    fun createQuote(projectId: String): String = "create_quote/$projectId"
 }
 
 enum class TopLevelDestination(
@@ -110,7 +114,8 @@ fun SolarDeskApp(
     val settings by repository.settings.collectAsStateWithLifecycle(initialValue = null)
     val businessTitle = settings?.businessName?.takeIf { it.isNotBlank() } ?: "SolarDesk"
 
-    val isDetailRoute = currentDestination?.route == NavRoutes.CUSTOMER_DETAIL
+    val isDetailRoute = currentDestination?.route == NavRoutes.CUSTOMER_DETAIL ||
+        currentDestination?.route == NavRoutes.CREATE_QUOTE
 
     fun navigateTopLevel(route: String) {
         navController.navigate(route) {
@@ -279,6 +284,24 @@ fun SolarDeskApp(
                                 factory = AppViewModelFactory(repository, customerId = customerId)
                             )
                             CustomerDetailScreen(
+                                viewModel = vm,
+                                onBack = { navController.popBackStack() },
+                                onCreateQuote = { projectId ->
+                                    navController.navigate(NavRoutes.createQuote(projectId))
+                                }
+                            )
+                        }
+
+                        composable(
+                            route = NavRoutes.CREATE_QUOTE,
+                            arguments = listOf(navArgument("projectId") { type = NavType.StringType })
+                        ) { entry ->
+                            val projectId = entry.arguments?.getString("projectId").orEmpty()
+                            val vm: CreateQuoteViewModel = viewModel(
+                                key = "create_quote_$projectId",
+                                factory = AppViewModelFactory(repository, projectId = projectId)
+                            )
+                            CreateQuoteScreen(
                                 viewModel = vm,
                                 onBack = { navController.popBackStack() }
                             )

@@ -48,17 +48,18 @@ enum class CustomerSortOption(val label: String) {
 
 object DefaultStages {
     val STAGES: List<String> = listOf(
-        "Enquiry",
-        "Initial Assessment",
-        "Documents Collection",
-        "Technical Survey",
-        "Quotation",
-        "Customer Confirmation",
-        "Approvals",
-        "Installation",
-        "Inspection and Commissioning",
-        "Final Payment and Handover",
-        "Completed"
+        "Work Order Signing",
+        "Document Collection",
+        "MNRE Registration",
+        "Feasibility Assessment",
+        "System Delivery",
+        "Industrial Works",
+        "Electrical Works",
+        "Completion Report Submission",
+        "Net Metering",
+        "Application Installation",
+        "Second Loan Disbursement",
+        "Subsidy Processing"
     )
 
     fun encodeStages(stages: List<String>): String =
@@ -80,6 +81,8 @@ data class DashboardPreferences(
 data class DatabaseStats(
     val customerCount: Int = 0,
     val projectCount: Int = 0,
+    val checklistCount: Int = 0,
+    val photoCount: Int = 0,
     val activityCount: Int = 0,
     val databaseSizeBytes: Long = 0L
 )

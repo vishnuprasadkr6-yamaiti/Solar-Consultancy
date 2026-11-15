@@ -1,6 +1,10 @@
 package com.example.ui.screens
 
-import androidx.compose.foundation.background
+import android.Manifest
+import android.content.pm.PackageManager
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -26,7 +30,6 @@ import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.CalendarToday
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Email
-import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Phone
@@ -44,23 +47,31 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.local.ProjectChecklist
 import com.example.data.local.ProjectEntity
+import com.example.data.local.ProjectPhoto
 import com.example.data.model.ProjectStatus
 import com.example.ui.components.ConfirmActionDialog
 import com.example.ui.components.CustomerFormDialog
@@ -75,22 +86,87 @@ import com.example.ui.components.StatusPill
 import com.example.ui.theme.StatusArchivedBg
 import com.example.ui.theme.StatusArchivedText
 import com.example.util.Formatters
+import java.io.File
+
+private enum class CustomerDetailTab(val label: String) {
+    PROJECTS("Projects"),
+    CHECKLIST("Checklist"),
+    ACTIVITY("Activity")
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CustomerDetailScreen(
     viewModel: CustomerDetailViewModel,
     onBack: () -> Unit,
+    onCreateQuote: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
+
+    var selectedTabIndex by remember { mutableIntStateOf(0) }
+    var selectedChecklistProjectId by remember { mutableStateOf<String?>(null) }
+    var newChecklistStepTitle by remember { mutableStateOf("") }
 
     var showEditCustomer by remember { mutableStateOf(false) }
     var showArchiveConfirm by remember { mutableStateOf(false) }
     var showAddProject by remember { mutableStateOf(false) }
     var editingProject by remember { mutableStateOf<ProjectEntity?>(null) }
     var stagingProject by remember { mutableStateOf<ProjectEntity?>(null) }
+    var previewPhoto by remember { mutableStateOf<ProjectPhoto?>(null) }
+    var editingChecklistNote by remember { mutableStateOf<ProjectChecklist?>(null) }
+
+    var pendingCaptureProjectId by remember { mutableStateOf<String?>(null) }
+    var pendingCaptureTarget by remember { mutableStateOf<Pair<File, Uri>?>(null) }
+
+    val takePictureLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        val projectId = pendingCaptureProjectId
+        val target = pendingCaptureTarget
+        if (success && projectId != null && target != null) {
+            viewModel.onPhotoCaptured(
+                projectId = projectId,
+                localFile = target.first,
+                localUri = target.second
+            )
+        } else {
+            target?.first?.delete()
+        }
+        pendingCaptureProjectId = null
+        pendingCaptureTarget = null
+    }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        val projectId = pendingCaptureProjectId
+        if (granted && projectId != null) {
+            val target = viewModel.createPhotoCaptureTarget(projectId)
+            pendingCaptureTarget = target
+            takePictureLauncher.launch(target.second)
+        } else {
+            pendingCaptureProjectId = null
+            viewModel.showTransientMessage("Camera permission is required to capture site photos.")
+        }
+    }
+
+    fun launchCameraForProject(projectId: String) {
+        pendingCaptureProjectId = projectId
+        val hasPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+        if (hasPermission) {
+            val target = viewModel.createPhotoCaptureTarget(projectId)
+            pendingCaptureTarget = target
+            takePictureLauncher.launch(target.second)
+        } else {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
 
     LaunchedEffect(state.snackbarMessage) {
         val msg = state.snackbarMessage
@@ -181,9 +257,7 @@ fun CustomerDetailScreen(
                     icon = Icons.Outlined.Person,
                     title = "Customer not found",
                     description = "This customer record may have been cleared.",
-                    action = {
-                        Button(onClick = onBack) { Text("Back to Customers") }
-                    }
+                    action = { Button(onClick = onBack) { Text("Back to Customers") } }
                 )
             }
             return@Scaffold
@@ -206,294 +280,155 @@ fun CustomerDetailScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     // Profile & Summary Card
-                    item {
+                    item(key = "customer_profile_card") {
                         Column(
                             modifier = Modifier
                                 .widthIn(max = maxContentWidth)
                                 .fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            SolarCard {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(16.dp),
-                                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Row(
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            IdPill(customer.id)
-                                            if (customer.isArchived) {
-                                                StatusPill(
-                                                    label = "Archived",
-                                                    containerColor = StatusArchivedBg,
-                                                    contentColor = StatusArchivedText
-                                                )
-                                            }
-                                        }
-                                        Text(
-                                            text = "Added ${Formatters.formatDate(customer.createdAt)}",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+                            CustomerProfileSummaryCard(
+                                customer = customer,
+                                projectCount = state.projects.size,
+                                activeCapacityKw = state.activeCapacityKw,
+                                totalQuotedAmount = state.totalQuotedAmount,
+                                currencySymbol = state.currencySymbol,
+                                currencyCode = state.currencyCode
+                            )
+
+                            TabRow(
+                                selectedTabIndex = selectedTabIndex,
+                                containerColor = MaterialTheme.colorScheme.surface,
+                                contentColor = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                            ) {
+                                CustomerDetailTab.entries.forEachIndexed { idx, tab ->
+                                    val tabTitle = when (tab) {
+                                        CustomerDetailTab.PROJECTS -> "Projects (${state.projects.size})"
+                                        CustomerDetailTab.CHECKLIST -> "Checklist"
+                                        CustomerDetailTab.ACTIVITY -> "Activity (${state.activities.size})"
                                     }
-
-                                    Text(
-                                        text = customer.fullName,
-                                        style = MaterialTheme.typography.headlineSmall
-                                    )
-
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Outlined.Phone,
-                                            contentDescription = "Phone",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        val phones = buildString {
-                                            append(customer.primaryPhone)
-                                            if (customer.secondaryPhone.isNotBlank()) {
-                                                append(" • Alt: ${customer.secondaryPhone}")
-                                            }
-                                        }
-                                        Text(text = phones, style = MaterialTheme.typography.bodyMedium)
-                                    }
-
-                                    if (customer.email.isNotBlank()) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Outlined.Email,
-                                                contentDescription = "Email",
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Text(text = customer.email, style = MaterialTheme.typography.bodyMedium)
-                                        }
-                                    }
-
-                                    val fullAddress = listOf(
-                                        customer.address,
-                                        customer.city,
-                                        customer.postalCode
-                                    ).filter { it.isNotBlank() }.joinToString(", ")
-
-                                    if (fullAddress.isNotBlank()) {
-                                        Row(
-                                            verticalAlignment = Alignment.Top,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Outlined.LocationOn,
-                                                contentDescription = "Address",
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Text(text = fullAddress, style = MaterialTheme.typography.bodyMedium)
-                                        }
-                                    }
-
-                                    if (customer.notes.isNotBlank()) {
-                                        Surface(
-                                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                                            shape = MaterialTheme.shapes.small,
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
+                                    Tab(
+                                        selected = selectedTabIndex == idx,
+                                        onClick = { selectedTabIndex = idx },
+                                        text = {
                                             Text(
-                                                text = customer.notes,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.padding(10.dp)
+                                                text = tabTitle,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
                                             )
-                                        }
-                                    }
-
-                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-
-                                    // Customer KPI Summary Row
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                    ) {
-                                        SummaryMiniStat(
-                                            label = "Projects",
-                                            value = state.projects.size.toString(),
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        SummaryMiniStat(
-                                            label = "Total Capacity",
-                                            value = Formatters.formatCapacityKw(state.activeCapacityKw),
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        SummaryMiniStat(
-                                            label = "Quoted Value",
-                                            value = Formatters.formatCurrency(
-                                                state.totalQuotedAmount,
-                                                state.currencySymbol,
-                                                state.currencyCode
-                                            ),
-                                            modifier = Modifier.weight(1.2f)
-                                        )
-                                    }
-                                }
-                            }
-
-                        }
-                    }
-
-                    // Projects Header
-                    item {
-                        Box(modifier = Modifier.widthIn(max = maxContentWidth).fillMaxWidth()) {
-                            SectionHeader(
-                                title = "Solar Projects (${state.projects.size})",
-                                subtitle = "One customer can hold multiple independent projects",
-                                action = {
-                                    Button(
-                                        onClick = {
-                                            viewModel.clearError()
-                                            showAddProject = true
                                         },
-                                        modifier = Modifier.testTag("add_project_button")
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Outlined.Add,
-                                            contentDescription = "Add Project",
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Add Project")
-                                    }
-                                }
-                            )
-                        }
-                    }
-
-                    if (state.projects.isEmpty()) {
-                        item {
-                            Box(modifier = Modifier.widthIn(max = maxContentWidth).fillMaxWidth()) {
-                                EmptyStateCard(
-                                    icon = Icons.Outlined.Bolt,
-                                    title = "No solar projects yet",
-                                    description = "Add the first solar project for ${customer.fullName} to track capacity, quotation, and stage progression.",
-                                    action = {
-                                        Button(
-                                            onClick = {
-                                                viewModel.clearError()
-                                                showAddProject = true
-                                            }
-                                        ) {
-                                            Text("Create First Project")
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                    } else {
-                        items(
-                            items = state.projects,
-                            key = { it.id }
-                        ) { project ->
-                            Box(modifier = Modifier.widthIn(max = maxContentWidth).fillMaxWidth()) {
-                                ProjectCard(
-                                    project = project,
-                                    stages = state.availableStages,
-                                    currencySymbol = state.currencySymbol,
-                                    currencyCode = state.currencyCode,
-                                    onMoveStage = {
-                                        viewModel.clearError()
-                                        stagingProject = project
-                                    },
-                                    onEdit = {
-                                        viewModel.clearError()
-                                        editingProject = project
-                                    }
-                                )
-                            }
-                        }
-                    }
-
-                    // Activity History Section
-                    item {
-                        Column(
-                            modifier = Modifier
-                                .widthIn(max = maxContentWidth)
-                                .fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            SectionHeader(
-                                title = "Activity History (${state.activities.size})",
-                                subtitle = "Recorded changes and stage progressions"
-                            )
-                            if (state.activities.isEmpty()) {
-                                SolarCard {
-                                    Text(
-                                        text = "No activity recorded yet.",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(16.dp)
+                                        modifier = Modifier.testTag("tab_${tab.name.lowercase()}")
                                     )
+                                }
+                            }
+                        }
+                    }
+
+                    when (CustomerDetailTab.entries[selectedTabIndex]) {
+                        CustomerDetailTab.PROJECTS -> {
+                            item(key = "projects_header") {
+                                Box(modifier = Modifier.widthIn(max = maxContentWidth).fillMaxWidth()) {
+                                    SectionHeader(
+                                        title = "Solar Projects (${state.projects.size})",
+                                        subtitle = "Track stages, attach site photos, and create offline PDF quotes",
+                                        action = {
+                                            Button(
+                                                onClick = {
+                                                    viewModel.clearError()
+                                                    showAddProject = true
+                                                },
+                                                modifier = Modifier.testTag("add_project_button")
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Outlined.Add,
+                                                    contentDescription = "Add Project",
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text("Add Project")
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+
+                            if (state.projects.isEmpty()) {
+                                item(key = "projects_empty") {
+                                    Box(modifier = Modifier.widthIn(max = maxContentWidth).fillMaxWidth()) {
+                                        EmptyStateCard(
+                                            icon = Icons.Outlined.Bolt,
+                                            title = "No solar projects yet",
+                                            description = "Add the first solar project for ${customer.fullName} to track capacity, checklist steps, site photos, and quotes.",
+                                            action = {
+                                                Button(
+                                                    onClick = {
+                                                        viewModel.clearError()
+                                                        showAddProject = true
+                                                    }
+                                                ) {
+                                                    Text("Create First Project")
+                                                }
+                                            }
+                                        )
+                                    }
                                 }
                             } else {
-                                SolarCard {
-                                    Column(modifier = Modifier.fillMaxWidth()) {
-                                        state.activities.forEachIndexed { idx, act ->
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(14.dp),
-                                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                                verticalAlignment = Alignment.Top
-                                            ) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(28.dp)
-                                                        .background(
-                                                            color = MaterialTheme.colorScheme.surfaceVariant,
-                                                            shape = RoundedCornerShape(8.dp)
-                                                        ),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Outlined.History,
-                                                        contentDescription = "Activity",
-                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                        modifier = Modifier.size(16.dp)
-                                                    )
-                                                }
-                                                Column(
-                                                    modifier = Modifier.weight(1f),
-                                                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                                                ) {
-                                                    Text(
-                                                        text = act.description,
-                                                        style = MaterialTheme.typography.bodyMedium
-                                                    )
-                                                    Text(
-                                                        text = "${act.id} • ${Formatters.formatDateTime(act.timestamp)}",
-                                                        style = MaterialTheme.typography.labelMedium,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
-                                                }
-                                            }
-                                            if (idx < state.activities.lastIndex) {
-                                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                                            }
-                                        }
+                                items(items = state.projects, key = { it.id }) { project ->
+                                    Box(modifier = Modifier.widthIn(max = maxContentWidth).fillMaxWidth()) {
+                                        ProjectCard(
+                                            project = project,
+                                            stages = state.availableStages,
+                                            photos = state.photosByProject[project.id].orEmpty(),
+                                            currencySymbol = state.currencySymbol,
+                                            currencyCode = state.currencyCode,
+                                            onMoveStage = {
+                                                viewModel.clearError()
+                                                stagingProject = project
+                                            },
+                                            onEdit = {
+                                                viewModel.clearError()
+                                                editingProject = project
+                                            },
+                                            onTakePhoto = { launchCameraForProject(project.id) },
+                                            onPreviewPhoto = { photo -> previewPhoto = photo },
+                                            onCreateQuote = { onCreateQuote(project.id) }
+                                        )
                                     }
                                 }
                             }
+                        }
+
+                        CustomerDetailTab.CHECKLIST -> {
+                            checklistTabItems(
+                                projects = state.projects,
+                                selectedProjectId = selectedChecklistProjectId,
+                                onSelectProject = { selectedChecklistProjectId = it },
+                                checklistsByProject = state.checklistsByProject,
+                                onToggleItem = viewModel::toggleChecklistItem,
+                                onEditNote = { editingChecklistNote = it },
+                                newStepTitle = newChecklistStepTitle,
+                                onNewStepTitleChange = { newChecklistStepTitle = it },
+                                onAddCustomStep = { projectId, title ->
+                                    viewModel.addCustomChecklistItem(projectId, title) {
+                                        newChecklistStepTitle = ""
+                                    }
+                                },
+                                onRequestCreateProject = {
+                                    viewModel.clearError()
+                                    showAddProject = true
+                                },
+                                maxContentWidth = maxContentWidth
+                            )
+                        }
+
+                        CustomerDetailTab.ACTIVITY -> {
+                            activityTabItems(
+                                activities = state.activities,
+                                maxContentWidth = maxContentWidth
+                            )
                         }
                     }
                 }
@@ -508,9 +443,7 @@ fun CustomerDetailScreen(
             errorMessage = state.errorMessage,
             onDismissError = viewModel::clearError,
             onSave = { input ->
-                viewModel.updateCustomer(input) {
-                    showEditCustomer = false
-                }
+                viewModel.updateCustomer(input) { showEditCustomer = false }
             },
             onDismiss = {
                 viewModel.clearError()
@@ -554,9 +487,7 @@ fun CustomerDetailScreen(
             errorMessage = state.errorMessage,
             onDismissError = viewModel::clearError,
             onSave = { input ->
-                viewModel.createProject(input) {
-                    showAddProject = false
-                }
+                viewModel.createProject(input) { showAddProject = false }
             },
             onDismiss = {
                 viewModel.clearError()
@@ -576,9 +507,7 @@ fun CustomerDetailScreen(
             errorMessage = state.errorMessage,
             onDismissError = viewModel::clearError,
             onSave = { input ->
-                viewModel.updateProject(target.id, input) {
-                    editingProject = null
-                }
+                viewModel.updateProject(target.id, input) { editingProject = null }
             },
             onDismiss = {
                 viewModel.clearError()
@@ -610,6 +539,165 @@ fun CustomerDetailScreen(
             }
         )
     }
+
+    previewPhoto?.let { photo ->
+        PhotoPreviewDialog(
+            photo = photo,
+            onDelete = {
+                viewModel.deletePhoto(photo.id)
+                previewPhoto = null
+            },
+            onDismiss = { previewPhoto = null }
+        )
+    }
+
+    editingChecklistNote?.let { checklistItem ->
+        ChecklistNoteDialog(
+            item = checklistItem,
+            onSave = { updatedNote ->
+                viewModel.updateChecklistItemNote(checklistItem.id, updatedNote)
+                editingChecklistNote = null
+            },
+            onDismiss = { editingChecklistNote = null }
+        )
+    }
+}
+
+@Composable
+private fun CustomerProfileSummaryCard(
+    customer: com.example.data.local.CustomerEntity,
+    projectCount: Int,
+    activeCapacityKw: Double,
+    totalQuotedAmount: Double,
+    currencySymbol: String,
+    currencyCode: String
+) {
+    SolarCard {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IdPill(customer.id)
+                    if (customer.isArchived) {
+                        StatusPill(
+                            label = "Archived",
+                            containerColor = StatusArchivedBg,
+                            contentColor = StatusArchivedText
+                        )
+                    }
+                }
+                Text(
+                    text = "Added ${Formatters.formatDate(customer.createdAt)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Text(text = customer.fullName, style = MaterialTheme.typography.headlineSmall)
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Phone,
+                    contentDescription = "Phone",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp)
+                )
+                val phones = buildString {
+                    append(customer.primaryPhone)
+                    if (customer.secondaryPhone.isNotBlank()) {
+                        append(" • Alt: ${customer.secondaryPhone}")
+                    }
+                }
+                Text(text = phones, style = MaterialTheme.typography.bodyMedium)
+            }
+
+            if (customer.email.isNotBlank()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Email,
+                        contentDescription = "Email",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(text = customer.email, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+
+            val fullAddress = listOf(customer.address, customer.city, customer.postalCode)
+                .filter { it.isNotBlank() }
+                .joinToString(", ")
+
+            if (fullAddress.isNotBlank()) {
+                Row(
+                    verticalAlignment = Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.LocationOn,
+                        contentDescription = "Address",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(text = fullAddress, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+
+            if (customer.notes.isNotBlank()) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = customer.notes,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(10.dp)
+                    )
+                }
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                SummaryMiniStat(
+                    label = "Projects",
+                    value = projectCount.toString(),
+                    modifier = Modifier.weight(1f)
+                )
+                SummaryMiniStat(
+                    label = "Total Capacity",
+                    value = Formatters.formatCapacityKw(activeCapacityKw),
+                    modifier = Modifier.weight(1f)
+                )
+                SummaryMiniStat(
+                    label = "Quoted Value",
+                    value = Formatters.formatCurrency(totalQuotedAmount, currencySymbol, currencyCode),
+                    modifier = Modifier.weight(1.2f)
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -636,10 +724,14 @@ private fun SummaryMiniStat(
 private fun ProjectCard(
     project: ProjectEntity,
     stages: List<String>,
+    photos: List<ProjectPhoto>,
     currencySymbol: String,
     currencyCode: String,
     onMoveStage: () -> Unit,
-    onEdit: () -> Unit
+    onEdit: () -> Unit,
+    onTakePhoto: () -> Unit,
+    onPreviewPhoto: (ProjectPhoto) -> Unit,
+    onCreateQuote: () -> Unit
 ) {
     val status = runCatching { ProjectStatus.valueOf(project.status) }.getOrDefault(ProjectStatus.ACTIVE)
     val stageIndex = stages.indexOfFirst { it.equals(project.currentStage, ignoreCase = true) }
@@ -668,10 +760,7 @@ private fun ProjectCard(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     IdPill(project.id)
-                    Text(
-                        text = project.name,
-                        style = MaterialTheme.typography.titleMedium
-                    )
+                    Text(text = project.name, style = MaterialTheme.typography.titleMedium)
                 }
                 ProjectStatusBadge(status = status)
             }
@@ -692,7 +781,6 @@ private fun ProjectCard(
                 )
             }
 
-            // Stage Progress Bar
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -723,7 +811,6 @@ private fun ProjectCard(
                 )
             }
 
-            // Details grid
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     text = "Location: ${project.installationLocation}",
@@ -821,6 +908,14 @@ private fun ProjectCard(
                     Text("Edit")
                 }
             }
+
+            ProjectPhotosSection(
+                project = project,
+                photos = photos,
+                onTakePhoto = onTakePhoto,
+                onPreviewPhoto = onPreviewPhoto,
+                onCreateQuote = onCreateQuote
+            )
         }
     }
 }

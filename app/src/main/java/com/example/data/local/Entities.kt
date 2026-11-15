@@ -65,6 +65,55 @@ data class ProjectEntity(
 )
 
 @Entity(
+    tableName = "project_checklist",
+    foreignKeys = [
+        ForeignKey(
+            entity = ProjectEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["projectId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [
+        Index(value = ["projectId"]),
+        Index(value = ["isCompleted"])
+    ]
+)
+data class ProjectChecklist(
+    @PrimaryKey val id: String, // CHK-00001
+    val projectId: String,
+    val stepOrder: Int,
+    val title: String,
+    val isCompleted: Boolean = false,
+    val completedAt: Long? = null,
+    val notes: String = "",
+    val updatedAt: Long
+)
+
+@Entity(
+    tableName = "project_photos",
+    foreignKeys = [
+        ForeignKey(
+            entity = ProjectEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["projectId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [
+        Index(value = ["projectId"]),
+        Index(value = ["capturedAt"])
+    ]
+)
+data class ProjectPhoto(
+    @PrimaryKey val id: String, // PHO-00001
+    val projectId: String,
+    val localUri: String, // Local FileProvider / file URI string only (never BLOBs)
+    val caption: String = "",
+    val capturedAt: Long
+)
+
+@Entity(
     tableName = "activity_log",
     indices = [
         Index(value = ["entityType", "entityId"]),
@@ -73,7 +122,7 @@ data class ProjectEntity(
 )
 data class ActivityLogEntity(
     @PrimaryKey val id: String, // ACT-00001
-    val entityType: String, // CUSTOMER, PROJECT, SETTINGS, SYSTEM
+    val entityType: String, // CUSTOMER, PROJECT, CHECKLIST, PHOTO, QUOTE, SETTINGS
     val entityId: String,
     val customerId: String? = null,
     val description: String,
@@ -82,7 +131,7 @@ data class ActivityLogEntity(
 
 @Entity(tableName = "sequence_counters")
 data class SequenceCounterEntity(
-    @PrimaryKey val prefix: String, // CUS, PRJ, ACT
+    @PrimaryKey val prefix: String, // CUS, PRJ, CHK, PHO, ACT
     val nextValue: Int
 )
 

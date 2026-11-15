@@ -1,13 +1,18 @@
 package com.example.data.repository
 
 import android.content.Context
+import android.net.Uri
 import android.util.Patterns
+import androidx.core.content.FileProvider
 import androidx.room.withTransaction
 import com.example.data.local.ActivityLogEntity
 import com.example.data.local.AppDatabase
+import com.example.data.local.ChecklistProjectStatusRow
 import com.example.data.local.CustomerEntity
 import com.example.data.local.PreferencesStore
+import com.example.data.local.ProjectChecklist
 import com.example.data.local.ProjectEntity
+import com.example.data.local.ProjectPhoto
 import com.example.data.local.SequenceCounterEntity
 import com.example.data.local.SettingsEntity
 import com.example.data.model.DashboardPreferences
@@ -21,6 +26,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.Locale
 
 data class CustomerInput(
@@ -55,12 +61,16 @@ class SolarRepository(
 ) {
     private val customerDao = db.customerDao()
     private val projectDao = db.projectDao()
+    private val checklistDao = db.projectChecklistDao()
+    private val photoDao = db.projectPhotoDao()
     private val activityDao = db.activityLogDao()
     private val counterDao = db.sequenceCounterDao()
     private val settingsDao = db.settingsDao()
 
     val allCustomers: Flow<List<CustomerEntity>> = customerDao.observeAllCustomers()
     val allProjects: Flow<List<ProjectEntity>> = projectDao.observeAllProjects()
+    val checklistCompletionSummary: Flow<List<ChecklistProjectStatusRow>> =
+        checklistDao.observeChecklistCompletionSummary()
     val recentActivity: Flow<List<ActivityLogEntity>> = activityDao.observeRecentActivity(60)
     val dashboardPreferences: Flow<DashboardPreferences> = preferencesStore.dashboardPreferences
 
@@ -74,13 +84,59 @@ class SolarRepository(
     fun observeCustomerProjects(customerId: String): Flow<List<ProjectEntity>> =
         projectDao.observeProjectsForCustomer(customerId)
 
+    fun observeCustomerChecklists(customerId: String): Flow<List<ProjectChecklist>> =
+        checklistDao.observeChecklistsForCustomer(customerId)
+
+    fun observeCustomerPhotos(customerId: String): Flow<List<ProjectPhoto>> =
+        photoDao.observePhotosForCustomer(customerId)
+
+    fun observeProjectPhotos(projectId: String): Flow<List<ProjectPhoto>> =
+        photoDao.observePhotosForProject(projectId)
+
     fun observeCustomerActivity(customerId: String): Flow<List<ActivityLogEntity>> =
         activityDao.observeActivityForCustomer(customerId)
 
+    suspend fun getProjectById(projectId: String): ProjectEntity? = withContext(Dispatchers.IO) {
+        projectDao.getProjectById(projectId)
+    }
+
+    suspend fun getCustomerById(customerId: String): CustomerEntity? = withContext(Dispatchers.IO) {
+        customerDao.getCustomerById(customerId)
+    }
+
+    suspend fun getSettingsSnapshot(): SettingsEntity = withContext(Dispatchers.IO) {
+        settingsDao.getSettings() ?: SettingsEntity()
+    }
+
     suspend fun ensureDefaultSettings() {
         withContext(Dispatchers.IO) {
-            if (settingsDao.getSettings() == null) {
+            val current = settingsDao.getSettings()
+            if (current == null) {
                 settingsDao.upsertSettings(SettingsEntity())
+            } else {
+                // Migrate legacy 11-stage default list if still untouched
+                val legacyStages = listOf(
+                    "Enquiry",
+                    "Initial Assessment",
+                    "Documents Collection",
+                    "Technical Survey",
+                    "Quotation",
+                    "Customer Confirmation",
+                    "Approvals",
+                    "Installation",
+                    "Inspection and Commissioning",
+                    "Final Payment and Handover",
+                    "Completed"
+                )
+                val existingStages = DefaultStages.decodeStages(current.stagesEncoded)
+                if (existingStages == legacyStages) {
+                    settingsDao.upsertSettings(
+                        current.copy(
+                            stagesEncoded = DefaultStages.encodeStages(DefaultStages.STAGES),
+                            updatedAt = System.currentTimeMillis()
+                        )
+                    )
+                }
             }
         }
     }
@@ -248,8 +304,10 @@ class SolarRepository(
                     ?: throw IllegalStateException("Customer ${input.customerId} does not exist.")
                 val now = System.currentTimeMillis()
                 val id = nextFormattedId("PRJ")
-                val effectiveStatus = if (input.currentStage.equals("Completed", ignoreCase = true)) {
-                    ProjectStatus.COMPLETED
+                val effectiveStatus = if (input.currentStage.equals("Subsidy Processing", ignoreCase = true) ||
+                    input.currentStage.equals("Completed", ignoreCase = true)
+                ) {
+                    input.status
                 } else {
                     input.status
                 }
@@ -270,6 +328,7 @@ class SolarRepository(
                     updatedAt = now
                 )
                 projectDao.insertProject(project)
+                seedChecklistForProjectInternal(id, now)
                 customerDao.updateCustomer(customer.copy(updatedAt = now))
                 logActivityInternal(
                     entityType = "PROJECT",
@@ -279,6 +338,255 @@ class SolarRepository(
                     timestamp = now
                 )
                 project
+            }
+        }
+    }
+
+    private suspend fun seedChecklistForProjectInternal(projectId: String, now: Long) {
+        val existing = checklistDao.getChecklistForProject(projectId)
+        if (existing.isNotEmpty()) return
+
+        val stages = settingsDao.getSettings()?.let { DefaultStages.decodeStages(it.stagesEncoded) }
+            ?: DefaultStages.STAGES
+
+        val items = stages.mapIndexed { index, stageTitle ->
+            ProjectChecklist(
+                id = nextFormattedId("CHK"),
+                projectId = projectId,
+                stepOrder = index + 1,
+                title = stageTitle,
+                isCompleted = false,
+                completedAt = null,
+                notes = "",
+                updatedAt = now
+            )
+        }
+        checklistDao.insertChecklistItems(items)
+    }
+
+    suspend fun ensureProjectChecklistsSeeded(customerId: String) = withContext(Dispatchers.IO) {
+        db.withTransaction {
+            val now = System.currentTimeMillis()
+            val settingsStages = settingsDao.getSettings()?.let { DefaultStages.decodeStages(it.stagesEncoded) }
+                ?: DefaultStages.STAGES
+            // Seed any project for this customer that lacks checklist rows
+            val cursor = db.query("SELECT id FROM projects WHERE customerId = ?", arrayOf(customerId))
+            val projectIds = mutableListOf<String>()
+            cursor.use { c ->
+                while (c.moveToNext()) {
+                    projectIds.add(c.getString(0))
+                }
+            }
+            for (pid in projectIds) {
+                val existing = checklistDao.getChecklistForProject(pid)
+                if (existing.isEmpty()) {
+                    val items = settingsStages.mapIndexed { idx, stageTitle ->
+                        ProjectChecklist(
+                            id = nextFormattedId("CHK"),
+                            projectId = pid,
+                            stepOrder = idx + 1,
+                            title = stageTitle,
+                            isCompleted = false,
+                            completedAt = null,
+                            notes = "",
+                            updatedAt = now
+                        )
+                    }
+                    checklistDao.insertChecklistItems(items)
+                }
+            }
+        }
+    }
+
+    suspend fun toggleChecklistItem(itemId: String, completed: Boolean): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                db.withTransaction {
+                    val item = checklistDao.getChecklistItemById(itemId)
+                        ?: throw IllegalStateException("Checklist item $itemId not found.")
+                    val project = projectDao.getProjectById(item.projectId)
+                    val now = System.currentTimeMillis()
+                    checklistDao.updateChecklistItem(
+                        item.copy(
+                            isCompleted = completed,
+                            completedAt = if (completed) now else null,
+                            updatedAt = now
+                        )
+                    )
+                    if (project != null) {
+                        projectDao.updateProject(project.copy(updatedAt = now))
+                        val statusText = if (completed) "completed" else "reopened"
+                        logActivityInternal(
+                            entityType = "CHECKLIST",
+                            entityId = item.id,
+                            customerId = project.customerId,
+                            description = "Project ${project.id} checklist step '${item.title}' $statusText.",
+                            timestamp = now
+                        )
+                    }
+                }
+            }
+        }
+
+    suspend fun updateChecklistItemNote(itemId: String, note: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                db.withTransaction {
+                    val item = checklistDao.getChecklistItemById(itemId)
+                        ?: throw IllegalStateException("Checklist item $itemId not found.")
+                    val now = System.currentTimeMillis()
+                    checklistDao.updateChecklistItem(
+                        item.copy(notes = note.trim(), updatedAt = now)
+                    )
+                }
+            }
+        }
+
+    suspend fun addCustomChecklistItem(projectId: String, title: String): Result<ProjectChecklist> =
+        withContext(Dispatchers.IO) {
+            val clean = title.trim()
+            if (clean.length < 2) {
+                return@withContext Result.failure(IllegalArgumentException("Checklist step title is required."))
+            }
+            runCatching {
+                db.withTransaction {
+                    val project = projectDao.getProjectById(projectId)
+                        ?: throw IllegalStateException("Project $projectId not found.")
+                    val existing = checklistDao.getChecklistForProject(projectId)
+                    val nextOrder = (existing.maxOfOrNull { it.stepOrder } ?: 0) + 1
+                    val now = System.currentTimeMillis()
+                    val item = ProjectChecklist(
+                        id = nextFormattedId("CHK"),
+                        projectId = projectId,
+                        stepOrder = nextOrder,
+                        title = clean,
+                        isCompleted = false,
+                        completedAt = null,
+                        notes = "",
+                        updatedAt = now
+                    )
+                    checklistDao.insertChecklistItem(item)
+                    logActivityInternal(
+                        entityType = "CHECKLIST",
+                        entityId = item.id,
+                        customerId = project.customerId,
+                        description = "Added checklist step '$clean' to ${project.id}.",
+                        timestamp = now
+                    )
+                    item
+                }
+            }
+        }
+
+    fun createPhotoOutputUri(projectId: String): Pair<File, Uri> {
+        val photosDir = File(context.filesDir, "project_photos/$projectId").apply { mkdirs() }
+        val file = File(photosDir, "IMG_${System.currentTimeMillis()}.jpg")
+        val uri = FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            file
+        )
+        return file to uri
+    }
+
+    suspend fun saveProjectPhoto(
+        projectId: String,
+        localFile: File,
+        localUri: Uri,
+        caption: String = ""
+    ): Result<ProjectPhoto> = withContext(Dispatchers.IO) {
+        if (!localFile.exists() || localFile.length() == 0L) {
+            localFile.delete()
+            return@withContext Result.failure(IllegalStateException("Captured image file is empty."))
+        }
+        runCatching {
+            db.withTransaction {
+                val project = projectDao.getProjectById(projectId)
+                    ?: throw IllegalStateException("Project $projectId not found.")
+                val customer = customerDao.getCustomerById(project.customerId)
+                val now = System.currentTimeMillis()
+                val photoId = nextFormattedId("PHO")
+                val entity = ProjectPhoto(
+                    id = photoId,
+                    projectId = projectId,
+                    localUri = localUri.toString(),
+                    caption = caption.trim(),
+                    capturedAt = now
+                )
+                photoDao.insertPhoto(entity)
+                projectDao.updateProject(project.copy(updatedAt = now))
+                if (customer != null) {
+                    customerDao.updateCustomer(customer.copy(updatedAt = now))
+                }
+                logActivityInternal(
+                    entityType = "PHOTO",
+                    entityId = photoId,
+                    customerId = project.customerId,
+                    description = "Site photo $photoId attached to project ${project.id}.",
+                    timestamp = now
+                )
+                entity
+            }
+        }
+    }
+
+    suspend fun deleteProjectPhoto(photoId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val photo = photoDao.getPhotoById(photoId) ?: return@runCatching
+            val project = projectDao.getProjectById(photo.projectId)
+            db.withTransaction {
+                photoDao.deletePhotoById(photoId)
+                if (project != null) {
+                    logActivityInternal(
+                        entityType = "PHOTO",
+                        entityId = photoId,
+                        customerId = project.customerId,
+                        description = "Site photo $photoId removed from project ${project.id}.",
+                        timestamp = System.currentTimeMillis()
+                    )
+                }
+            }
+            // Delete physical file from internal app storage
+            runCatching {
+                val uri = Uri.parse(photo.localUri)
+                val filename = uri.lastPathSegment
+                if (!filename.isNullOrBlank()) {
+                    val file = File(context.filesDir, "project_photos/${photo.projectId}/$filename")
+                    if (file.exists()) file.delete()
+                }
+            }
+            Unit
+        }
+    }
+
+    suspend fun recordQuoteGenerated(
+        projectId: String,
+        totalQuoteAmount: Double,
+        updateProjectQuotation: Boolean
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            db.withTransaction {
+                val project = projectDao.getProjectById(projectId)
+                    ?: throw IllegalStateException("Project $projectId not found.")
+                val customer = customerDao.getCustomerById(project.customerId)
+                val now = System.currentTimeMillis()
+                if (updateProjectQuotation) {
+                    projectDao.updateProject(
+                        project.copy(quotationAmount = totalQuoteAmount, updatedAt = now)
+                    )
+                } else {
+                    projectDao.updateProject(project.copy(updatedAt = now))
+                }
+                if (customer != null) {
+                    customerDao.updateCustomer(customer.copy(updatedAt = now))
+                }
+                logActivityInternal(
+                    entityType = "QUOTE",
+                    entityId = projectId,
+                    customerId = project.customerId,
+                    description = "Offline Quote PDF generated for project ${project.id} (Total: ₹${totalQuoteAmount.toLong()}).",
+                    timestamp = now
+                )
             }
         }
     }
@@ -351,8 +659,6 @@ class SolarRepository(
                 val resolvedStatus = when {
                     newStatus != null -> newStatus.name
                     trimmedStage.equals("Completed", ignoreCase = true) -> ProjectStatus.COMPLETED.name
-                    existing.status == ProjectStatus.COMPLETED.name &&
-                        !trimmedStage.equals("Completed", ignoreCase = true) -> ProjectStatus.ACTIVE.name
                     else -> existing.status
                 }
                 projectDao.updateProject(
@@ -441,6 +747,8 @@ class SolarRepository(
         DatabaseStats(
             customerCount = customerDao.countCustomers(),
             projectCount = projectDao.countProjects(),
+            checklistCount = checklistDao.countChecklistItems(),
+            photoCount = photoDao.countPhotos(),
             activityCount = activityDao.countActivities(),
             databaseSizeBytes = sizeBytes
         )
@@ -449,12 +757,16 @@ class SolarRepository(
     suspend fun resetAllApplicationData(): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             db.withTransaction {
+                photoDao.deleteAllPhotos()
+                checklistDao.deleteAllChecklistItems()
                 projectDao.deleteAllProjects()
                 customerDao.deleteAllCustomers()
                 activityDao.deleteAllActivities()
                 counterDao.deleteAllCounters()
                 settingsDao.upsertSettings(SettingsEntity())
             }
+            File(context.filesDir, "project_photos").deleteRecursively()
+            File(context.filesDir, "quotes").deleteRecursively()
             preferencesStore.resetDashboardPreferences()
         }
     }

@@ -27,6 +27,7 @@ import androidx.compose.material.icons.outlined.ArrowDownward
 import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Checklist
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.People
@@ -223,6 +224,12 @@ fun DashboardScreen(
                         }
                     }
 
+                    // Checklist Completion KPI Card
+                    ChecklistCompletionKpiCard(
+                        completedProjects = state.checklistCompletedProjects,
+                        pendingProjects = state.checklistPendingProjects
+                    )
+
                     // First-launch callout when database has zero customers
                     if (!state.isLoading && state.totalCustomers == 0 && state.activeProjects == 0) {
                         EmptyStateCard(
@@ -372,6 +379,78 @@ private data class KpiSpec(
     val icon: androidx.compose.ui.graphics.vector.ImageVector,
     val accent: Boolean = false
 )
+
+@Composable
+private fun ChecklistCompletionKpiCard(
+    completedProjects: Int,
+    pendingProjects: Int,
+    modifier: Modifier = Modifier
+) {
+    val totalProjects = (completedProjects + pendingProjects).coerceAtLeast(0)
+    val fraction = if (totalProjects == 0) 0f else completedProjects.toFloat() / totalProjects.toFloat()
+
+    SolarCard(modifier = modifier.fillMaxWidth().testTag("kpi_checklist_completion")) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = "Checklist Completion",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "$completedProjects Completed • $pendingProjects Pending",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .background(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = RoundedCornerShape(8.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Checklist,
+                        contentDescription = "Checklist Completion",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+            LinearProgressIndicator(
+                progress = { fraction },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(7.dp)
+                    .clip(RoundedCornerShape(4.dp)),
+                trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                text = if (totalProjects == 0) {
+                    "Create a project to start tracking the 12 solar execution checklist steps."
+                } else {
+                    "$completedProjects of $totalProjects active/commissioned projects have 100% checklist completion."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
 
 @Composable
 private fun StageOverviewSection(

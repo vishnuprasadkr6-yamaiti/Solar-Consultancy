@@ -74,7 +74,7 @@ fun ProjectFormDialog(
     }
     var selectedStage by remember(initialProject, availableStages) {
         mutableStateOf(
-            initialProject?.currentStage ?: availableStages.firstOrNull() ?: "Enquiry"
+            initialProject?.currentStage ?: availableStages.firstOrNull() ?: "Work Order Signing"
         )
     }
     var selectedStatus by remember(initialProject) {

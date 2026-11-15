@@ -1,10 +1,13 @@
 package com.example.ui.screens
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.ActivityLogEntity
 import com.example.data.local.CustomerEntity
+import com.example.data.local.ProjectChecklist
 import com.example.data.local.ProjectEntity
+import com.example.data.local.ProjectPhoto
 import com.example.data.model.DefaultStages
 import com.example.data.model.ProjectStatus
 import com.example.data.repository.CustomerInput
@@ -17,11 +20,14 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.io.File
 
 data class CustomerDetailUiState(
     val isLoading: Boolean = true,
     val customer: CustomerEntity? = null,
     val projects: List<ProjectEntity> = emptyList(),
+    val checklistsByProject: Map<String, List<ProjectChecklist>> = emptyMap(),
+    val photosByProject: Map<String, List<ProjectPhoto>> = emptyMap(),
     val activities: List<ActivityLogEntity> = emptyList(),
     val availableStages: List<String> = DefaultStages.STAGES,
     val currencySymbol: String = "₹",
@@ -46,19 +52,47 @@ class CustomerDetailViewModel(
         val snackbarMessage: String? = null
     )
 
-    val uiState: StateFlow<CustomerDetailUiState> = combine(
+    private data class CustomerCoreBundle(
+        val customer: CustomerEntity?,
+        val projects: List<ProjectEntity>,
+        val checklists: List<ProjectChecklist>,
+        val photos: List<ProjectPhoto>
+    )
+
+    init {
+        viewModelScope.launch {
+            repository.ensureProjectChecklistsSeeded(customerId)
+        }
+    }
+
+    private val coreFlow = combine(
         repository.observeCustomer(customerId),
         repository.observeCustomerProjects(customerId),
+        repository.observeCustomerChecklists(customerId),
+        repository.observeCustomerPhotos(customerId)
+    ) { customer, projects, checklists, photos ->
+        CustomerCoreBundle(
+            customer = customer,
+            projects = projects,
+            checklists = checklists,
+            photos = photos
+        )
+    }
+
+    val uiState: StateFlow<CustomerDetailUiState> = combine(
+        coreFlow,
         repository.observeCustomerActivity(customerId),
         repository.settings,
         transientState
-    ) { customer, projects, activities, settings, transient ->
+    ) { core, activities, settings, transient ->
         val stages = DefaultStages.decodeStages(settings.stagesEncoded)
-        val nonArchived = projects.filter { it.status != ProjectStatus.ARCHIVED.name }
+        val nonArchived = core.projects.filter { it.status != ProjectStatus.ARCHIVED.name }
         CustomerDetailUiState(
             isLoading = false,
-            customer = customer,
-            projects = projects,
+            customer = core.customer,
+            projects = core.projects,
+            checklistsByProject = core.checklists.groupBy { it.projectId },
+            photosByProject = core.photos.groupBy { it.projectId },
             activities = activities,
             availableStages = stages,
             currencySymbol = settings.currencySymbol,
@@ -81,6 +115,10 @@ class CustomerDetailViewModel(
 
     fun clearSnackbar() {
         transientState.update { it.copy(snackbarMessage = null) }
+    }
+
+    fun showTransientMessage(message: String) {
+        transientState.update { it.copy(snackbarMessage = message) }
     }
 
     fun updateCustomer(input: CustomerInput, onSuccess: () -> Unit) {
@@ -187,6 +225,83 @@ class CustomerDetailViewModel(
                 onFailure = { err ->
                     transientState.update {
                         it.copy(isSaving = false, errorMessage = err.message ?: "Unable to update stage.")
+                    }
+                }
+            )
+        }
+    }
+
+    fun toggleChecklistItem(itemId: String, completed: Boolean) {
+        viewModelScope.launch {
+            repository.toggleChecklistItem(itemId, completed).onFailure { err ->
+                transientState.update {
+                    it.copy(snackbarMessage = err.message ?: "Unable to update checklist step.")
+                }
+            }
+        }
+    }
+
+    fun updateChecklistItemNote(itemId: String, note: String) {
+        viewModelScope.launch {
+            repository.updateChecklistItemNote(itemId, note).fold(
+                onSuccess = {
+                    transientState.update { it.copy(snackbarMessage = "Checklist note saved.") }
+                },
+                onFailure = { err ->
+                    transientState.update {
+                        it.copy(snackbarMessage = err.message ?: "Unable to save note.")
+                    }
+                }
+            )
+        }
+    }
+
+    fun addCustomChecklistItem(projectId: String, title: String, onSuccess: () -> Unit) {
+        viewModelScope.launch {
+            repository.addCustomChecklistItem(projectId, title).fold(
+                onSuccess = {
+                    transientState.update { it.copy(snackbarMessage = "Checklist step added.") }
+                    onSuccess()
+                },
+                onFailure = { err ->
+                    transientState.update {
+                        it.copy(snackbarMessage = err.message ?: "Unable to add checklist step.")
+                    }
+                }
+            )
+        }
+    }
+
+    fun createPhotoCaptureTarget(projectId: String): Pair<File, Uri> {
+        return repository.createPhotoOutputUri(projectId)
+    }
+
+    fun onPhotoCaptured(projectId: String, localFile: File, localUri: Uri, caption: String = "") {
+        viewModelScope.launch {
+            repository.saveProjectPhoto(projectId, localFile, localUri, caption).fold(
+                onSuccess = {
+                    transientState.update {
+                        it.copy(snackbarMessage = "Site photo saved locally & attached.")
+                    }
+                },
+                onFailure = { err ->
+                    transientState.update {
+                        it.copy(snackbarMessage = err.message ?: "Failed to attach photo.")
+                    }
+                }
+            )
+        }
+    }
+
+    fun deletePhoto(photoId: String) {
+        viewModelScope.launch {
+            repository.deleteProjectPhoto(photoId).fold(
+                onSuccess = {
+                    transientState.update { it.copy(snackbarMessage = "Site photo deleted.") }
+                },
+                onFailure = { err ->
+                    transientState.update {
+                        it.copy(snackbarMessage = err.message ?: "Unable to delete photo.")
                     }
                 }
             )

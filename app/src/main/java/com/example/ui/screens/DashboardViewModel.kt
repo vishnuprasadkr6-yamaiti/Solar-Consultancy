@@ -3,6 +3,7 @@ package com.example.ui.screens
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.ActivityLogEntity
+import com.example.data.local.ChecklistProjectStatusRow
 import com.example.data.local.CustomerEntity
 import com.example.data.local.ProjectEntity
 import com.example.data.local.SettingsEntity
@@ -40,12 +41,10 @@ data class DashboardUiState(
     val totalCustomers: Int = 0,
     val activeProjects: Int = 0,
     val completedProjects: Int = 0,
+    val checklistCompletedProjects: Int = 0,
+    val checklistPendingProjects: Int = 0,
     val totalCapacityKw: Double = 0.0,
     val quotedPipelineAmount: Double = 0.0,
-    val pendingDocumentsCount: Int = 0,
-    val awaitingVerificationCount: Int = 0,
-    val outstandingPaymentsAmount: Double = 0.0,
-    val overdueTasksCount: Int = 0,
     val stageBreakdown: List<StageCount> = emptyList(),
     val projectsNeedingAttention: List<ProjectSummaryRow> = emptyList(),
     val recentlyUpdatedProjects: List<ProjectSummaryRow> = emptyList(),
@@ -55,23 +54,48 @@ data class DashboardUiState(
 
 class DashboardViewModel(private val repository: SolarRepository) : ViewModel() {
 
-    val uiState: StateFlow<DashboardUiState> = combine(
+    private data class CoreDashboardBundle(
+        val customers: List<CustomerEntity>,
+        val projects: List<ProjectEntity>,
+        val checklistSummary: List<ChecklistProjectStatusRow>
+    )
+
+    private val coreBundle = combine(
         repository.allCustomers,
         repository.allProjects,
+        repository.checklistCompletionSummary
+    ) { customers, projects, checklistSummary ->
+        CoreDashboardBundle(
+            customers = customers,
+            projects = projects,
+            checklistSummary = checklistSummary
+        )
+    }
+
+    val uiState: StateFlow<DashboardUiState> = combine(
+        coreBundle,
         repository.recentActivity,
         repository.settings,
         repository.dashboardPreferences
-    ) { customers: List<CustomerEntity>,
-        projects: List<ProjectEntity>,
+    ) { core: CoreDashboardBundle,
         activities: List<ActivityLogEntity>,
         settings: SettingsEntity,
         prefs: DashboardPreferences ->
 
+        val customers = core.customers
+        val projects = core.projects
         val customerMap = customers.associateBy { it.id }
         val activeCustomers = customers.count { !it.isArchived }
 
         val activeCount = projects.count { it.status == ProjectStatus.ACTIVE.name }
         val completedCount = projects.count { it.status == ProjectStatus.COMPLETED.name }
+
+        val checklistCompletedCount = core.checklistSummary.count {
+            it.totalItems > 0 && it.completedItems >= it.totalItems
+        }
+        val checklistPendingCount = core.checklistSummary.count {
+            it.totalItems == 0 || it.completedItems < it.totalItems
+        }
 
         val filteredProjects = when (prefs.projectFilter) {
             DashboardProjectFilter.ACTIVE -> projects.filter { it.status == ProjectStatus.ACTIVE.name }
@@ -107,8 +131,7 @@ class DashboardViewModel(private val repository: SolarRepository) : ViewModel() 
                     project.updatedAt < now - staleThresholdMs ->
                         "No update in 14+ days"
                     project.quotationAmount <= 0.0 &&
-                        (project.currentStage.contains("Quotation", ignoreCase = true) ||
-                            project.currentStage.contains("Confirmation", ignoreCase = true)) ->
+                        !project.currentStage.equals("Work Order Signing", ignoreCase = true) ->
                         "Quotation amount not entered"
                     else -> null
                 }
@@ -140,12 +163,10 @@ class DashboardViewModel(private val repository: SolarRepository) : ViewModel() 
             totalCustomers = activeCustomers,
             activeProjects = activeCount,
             completedProjects = completedCount,
+            checklistCompletedProjects = checklistCompletedCount,
+            checklistPendingProjects = checklistPendingCount,
             totalCapacityKw = filteredProjects.sumOf { it.capacityKw },
             quotedPipelineAmount = timeFilteredProjects.sumOf { it.quotationAmount },
-            pendingDocumentsCount = 0, // Populated in Milestone 2
-            awaitingVerificationCount = 0, // Populated in Milestone 2
-            outstandingPaymentsAmount = 0.0, // Populated in Milestone 3
-            overdueTasksCount = 0, // Populated in Milestone 2
             stageBreakdown = stageBreakdown,
             projectsNeedingAttention = attentionRows,
             recentlyUpdatedProjects = recentProjectRows,
