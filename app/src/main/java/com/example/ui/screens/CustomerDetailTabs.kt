@@ -34,6 +34,7 @@ import androidx.compose.material.icons.outlined.Checklist
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -84,6 +85,7 @@ fun ProjectPhotosSection(
     project: ProjectEntity,
     photos: List<ProjectPhoto>,
     onTakePhoto: () -> Unit,
+    onPickGalleryPhoto: () -> Unit,
     onPreviewPhoto: (ProjectPhoto) -> Unit,
     onCreateQuote: () -> Unit,
     modifier: Modifier = Modifier
@@ -103,17 +105,34 @@ fun ProjectPhotosSection(
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurface
             )
-            OutlinedButton(
-                onClick = onTakePhoto,
-                modifier = Modifier.testTag("take_photo_button_${project.id}")
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Outlined.CameraAlt,
-                    contentDescription = "Take Site Photo",
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Take Photo")
+                OutlinedButton(
+                    onClick = onPickGalleryPhoto,
+                    modifier = Modifier.testTag("pick_photo_button_${project.id}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.PhotoLibrary,
+                        contentDescription = "Attach Photo from Gallery",
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Gallery")
+                }
+                OutlinedButton(
+                    onClick = onTakePhoto,
+                    modifier = Modifier.testTag("take_photo_button_${project.id}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.CameraAlt,
+                        contentDescription = "Take Site Photo",
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Camera")
+                }
             }
         }
 
@@ -135,11 +154,26 @@ fun ProjectPhotosSection(
                         modifier = Modifier.size(18.dp)
                     )
                     Text(
-                        text = "Capture at least 1 site photo to attach locally and unlock Create Quote.",
+                        text = "Capture or attach at least 1 site photo to unlock PDF Quote Export.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+            }
+            OutlinedButton(
+                onClick = {},
+                enabled = false,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("create_quote_locked_${project.id}")
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.PictureAsPdf,
+                    contentDescription = "Create Quote Locked",
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Create Quote (Add 1+ Site Photo First)")
             }
         } else {
             LazyRow(
@@ -172,7 +206,7 @@ fun ProjectPhotosSection(
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Create Quote")
+                Text("Create Quote & Share PDF")
             }
         }
     }

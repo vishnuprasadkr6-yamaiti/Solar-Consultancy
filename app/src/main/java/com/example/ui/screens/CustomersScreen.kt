@@ -255,7 +255,7 @@ fun CustomersScreen(
                                     "No matching customers"
                                 },
                                 description = if (state.searchQuery.isBlank()) {
-                                    "Create a customer record to start tracking solar enquiries, site details, and multiple projects."
+                                    "Create a customer record and add a project to track checklists, site photos, and offline PDF quotes."
                                 } else {
                                     "Try clearing your search or switching between Active, Archived, and All filters."
                                 },

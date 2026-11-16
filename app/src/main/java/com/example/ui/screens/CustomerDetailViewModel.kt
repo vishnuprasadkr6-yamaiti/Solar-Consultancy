@@ -293,6 +293,23 @@ class CustomerDetailViewModel(
         }
     }
 
+    fun onGalleryPhotoPicked(projectId: String, sourceUri: Uri) {
+        viewModelScope.launch {
+            repository.savePickedGalleryPhoto(projectId, sourceUri).fold(
+                onSuccess = {
+                    transientState.update {
+                        it.copy(snackbarMessage = "Gallery photo saved locally & attached.")
+                    }
+                },
+                onFailure = { err ->
+                    transientState.update {
+                        it.copy(snackbarMessage = err.message ?: "Failed to attach gallery photo.")
+                    }
+                }
+            )
+        }
+    }
+
     fun deletePhoto(photoId: String) {
         viewModelScope.launch {
             repository.deleteProjectPhoto(photoId).fold(

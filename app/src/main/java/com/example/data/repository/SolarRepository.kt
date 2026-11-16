@@ -530,6 +530,25 @@ class SolarRepository(
         }
     }
 
+    suspend fun savePickedGalleryPhoto(
+        projectId: String,
+        sourceUri: Uri
+    ): Result<ProjectPhoto> = withContext(Dispatchers.IO) {
+        val (destFile, destUri) = createPhotoOutputUri(projectId)
+        val copied = runCatching {
+            context.contentResolver.openInputStream(sourceUri)?.use { input ->
+                destFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            } ?: throw IllegalStateException("Unable to read selected photo.")
+        }
+        if (copied.isFailure) {
+            destFile.delete()
+            return@withContext Result.failure(copied.exceptionOrNull()!!)
+        }
+        saveProjectPhoto(projectId, destFile, destUri)
+    }
+
     suspend fun deleteProjectPhoto(photoId: String): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val photo = photoDao.getPhotoById(photoId) ?: return@runCatching

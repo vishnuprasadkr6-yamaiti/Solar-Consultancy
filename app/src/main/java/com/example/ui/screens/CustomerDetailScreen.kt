@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -120,6 +121,17 @@ fun CustomerDetailScreen(
 
     var pendingCaptureProjectId by remember { mutableStateOf<String?>(null) }
     var pendingCaptureTarget by remember { mutableStateOf<Pair<File, Uri>?>(null) }
+    var pendingGalleryProjectId by remember { mutableStateOf<String?>(null) }
+
+    val pickVisualMediaLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { pickedUri ->
+        val projectId = pendingGalleryProjectId
+        if (pickedUri != null && projectId != null) {
+            viewModel.onGalleryPhotoPicked(projectId, pickedUri)
+        }
+        pendingGalleryProjectId = null
+    }
 
     val takePictureLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
@@ -166,6 +178,13 @@ fun CustomerDetailScreen(
         } else {
             cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
         }
+    }
+
+    fun launchGalleryForProject(projectId: String) {
+        pendingGalleryProjectId = projectId
+        pickVisualMediaLauncher.launch(
+            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+        )
     }
 
     LaunchedEffect(state.snackbarMessage) {
@@ -393,6 +412,7 @@ fun CustomerDetailScreen(
                                                 editingProject = project
                                             },
                                             onTakePhoto = { launchCameraForProject(project.id) },
+                                            onPickGalleryPhoto = { launchGalleryForProject(project.id) },
                                             onPreviewPhoto = { photo -> previewPhoto = photo },
                                             onCreateQuote = { onCreateQuote(project.id) }
                                         )
@@ -730,6 +750,7 @@ private fun ProjectCard(
     onMoveStage: () -> Unit,
     onEdit: () -> Unit,
     onTakePhoto: () -> Unit,
+    onPickGalleryPhoto: () -> Unit,
     onPreviewPhoto: (ProjectPhoto) -> Unit,
     onCreateQuote: () -> Unit
 ) {
@@ -913,6 +934,7 @@ private fun ProjectCard(
                 project = project,
                 photos = photos,
                 onTakePhoto = onTakePhoto,
+                onPickGalleryPhoto = onPickGalleryPhoto,
                 onPreviewPhoto = onPreviewPhoto,
                 onCreateQuote = onCreateQuote
             )
